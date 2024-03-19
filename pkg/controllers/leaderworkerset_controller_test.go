@@ -205,7 +205,7 @@ func TestLeaderStatefulSetApplyConfig(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			stsApplyConfig, err := constructLeaderStatefulSetApplyConfiguration(tc.lws)
+			stsApplyConfig, err := constructLeaderStatefulSetApplyConfiguration(tc.lws, 0)
 			if err != nil {
 				t.Errorf("failed with error: %s", err.Error())
 			}

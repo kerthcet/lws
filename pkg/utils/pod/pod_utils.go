@@ -41,8 +41,14 @@ func ContainerRestarted(pod corev1.Pod) bool {
 	return false
 }
 
+// PodLivez checks if the worker pod is running and marked as ready,
+// most importantly, not under deletion.
+func PodLivez(pod *corev1.Pod) bool {
+	return !PodDeleted(pod) && PodRunningAndReady(pod)
+}
+
 // PodDeleted checks if the worker pod has been deleted
-func PodDeleted(pod corev1.Pod) bool {
+func PodDeleted(pod *corev1.Pod) bool {
 	return pod.DeletionTimestamp != nil
 }
 

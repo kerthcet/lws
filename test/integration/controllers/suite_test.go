@@ -31,6 +31,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
@@ -94,14 +95,16 @@ var _ = BeforeSuite(func() {
 		Scheme: scheme.Scheme,
 	})
 	Expect(err).ToNot(HaveOccurred())
-	lwsController := controllers.NewLeaderWorkerSetReconciler(k8sManager.GetClient(), k8sManager.GetScheme(), k8sManager.GetEventRecorderFor("leaderworkerset"))
+
+	channel := make(chan event.GenericEvent)
+	lwsController := controllers.NewLeaderWorkerSetReconciler(k8sManager.GetClient(), k8sManager.GetScheme(), k8sManager.GetEventRecorderFor("leaderworkerset"), channel)
 
 	err = controllers.SetupIndexes(k8sManager.GetFieldIndexer())
 	Expect(err).ToNot(HaveOccurred())
 	err = lwsController.SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
-	podController := controllers.NewPodReconciler(k8sManager.GetClient(), k8sManager.GetScheme())
+	podController := controllers.NewPodReconciler(k8sManager.GetClient(), k8sManager.GetScheme(), channel)
 	err = podController.SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 

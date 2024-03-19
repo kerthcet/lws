@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -36,7 +35,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	leaderworkerset "sigs.k8s.io/lws/api/leaderworkerset/v1"
 	acceleratorutils "sigs.k8s.io/lws/pkg/utils/accelerators"
@@ -47,11 +49,12 @@ import (
 // PodReconciler reconciles a LeaderWorkerSet object
 type PodReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme  *runtime.Scheme
+	watcher chan event.GenericEvent
 }
 
-func NewPodReconciler(client client.Client, schema *runtime.Scheme) *PodReconciler {
-	return &PodReconciler{Client: client, Scheme: schema}
+func NewPodReconciler(client client.Client, schema *runtime.Scheme, watcher chan event.GenericEvent) *PodReconciler {
+	return &PodReconciler{Client: client, Scheme: schema, watcher: watcher}
 }
 
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=create;delete;get;list;patch;update;watch
@@ -64,6 +67,8 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	}
 	log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(&pod))
 	ctx = ctrl.LoggerInto(ctx, log)
+
+	log.Info("Pod reconciling", "name", req.Name, "namespace", req.Namespace)
 
 	// get the leaderWorkerSet name
 	lwsName := pod.Labels[leaderworkerset.SetNameLabelKey]
@@ -149,7 +154,7 @@ func (r *PodReconciler) handleRestartPolicy(ctx context.Context, pod corev1.Pod,
 		return false, nil
 	}
 	// the leader pod will be deleted if the worker pod is deleted or any containes were restarted
-	if !podutils.ContainerRestarted(pod) && !podutils.PodDeleted(pod) {
+	if !podutils.ContainerRestarted(pod) && !podutils.PodDeleted(&pod) {
 		return false, nil
 	}
 	var leader corev1.Pod
@@ -251,14 +256,20 @@ func constructWorkerStatefulSetApplyConfiguration(leaderPod corev1.Pod, lws lead
 	if err != nil {
 		return nil, err
 	}
-	labelMap := map[string]string{
+	selectorMap := map[string]string{
 		leaderworkerset.GroupIndexLabelKey:      leaderPod.Labels[leaderworkerset.GroupIndexLabelKey],
 		leaderworkerset.SetNameLabelKey:         lws.Name,
 		leaderworkerset.GroupUniqueHashLabelKey: leaderPod.Labels[leaderworkerset.GroupUniqueHashLabelKey],
 	}
+	labelMap := map[string]string{
+		leaderworkerset.GroupIndexLabelKey:      leaderPod.Labels[leaderworkerset.GroupIndexLabelKey],
+		leaderworkerset.SetNameLabelKey:         lws.Name,
+		leaderworkerset.GroupUniqueHashLabelKey: leaderPod.Labels[leaderworkerset.GroupUniqueHashLabelKey],
+		leaderworkerset.TemplateRevisionHashKey: leaderPod.Labels[leaderworkerset.TemplateRevisionHashKey],
+	}
 	podTemplateApplyConfiguration.WithLabels(labelMap)
 	podAnnotations := make(map[string]string)
-	podAnnotations[leaderworkerset.SizeAnnotationKey] = strconv.Itoa(int(*lws.Spec.LeaderWorkerTemplate.Size))
+	// podAnnotations[leaderworkerset.SizeAnnotationKey] = strconv.Itoa(int(*lws.Spec.LeaderWorkerTemplate.Size))
 	podAnnotations[leaderworkerset.LeaderPodNameAnnotationKey] = leaderPod.Name
 	if lws.Annotations[leaderworkerset.ExclusiveKeyAnnotationKey] != "" {
 		podAnnotations[leaderworkerset.ExclusiveKeyAnnotationKey] = lws.Annotations[leaderworkerset.ExclusiveKeyAnnotationKey]
@@ -274,7 +285,7 @@ func constructWorkerStatefulSetApplyConfiguration(leaderPod corev1.Pod, lws lead
 			WithTemplate(&podTemplateApplyConfiguration).
 			WithOrdinals(appsapplyv1.StatefulSetOrdinals().WithStart(1)).
 			WithSelector(metaapplyv1.LabelSelector().
-				WithMatchLabels(labelMap))).
+				WithMatchLabels(selectorMap))).
 		WithLabels(labelMap)
 	return statefulSetConfig, nil
 }
@@ -292,5 +303,7 @@ func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				return exist
 			}
 			return false
-		})).Owns(&appsv1.StatefulSet{}).Complete(r)
+		})).Owns(&appsv1.StatefulSet{}).
+		WatchesRawSource(&source.Channel{Source: r.watcher}, &handler.EnqueueRequestForObject{}).
+		Complete(r)
 }

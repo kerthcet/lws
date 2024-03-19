@@ -229,6 +229,15 @@ var _ = ginkgo.Describe("leaderworkerset defaulting, creation and update", func(
 			},
 			updateShouldFail: false,
 		}),
+		ginkgo.Entry("leaderTemplate can be updated", &testValidationCase{
+			makeLeaderWorkerSet: func(ns *corev1.Namespace) *testutils.LeaderWorkerSetWrapper {
+				return testutils.BuildLeaderWorkerSet(ns.Name)
+			},
+			updateLeaderWorkerSet: func(lws *leaderworkerset.LeaderWorkerSet) {
+				lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec = testutils.MakeLeaderPodSpecWithTPUResource()
+			},
+			updateShouldFail: false,
+		}),
 		ginkgo.Entry("not allowlisted fields of spec are immutable", &testValidationCase{
 			makeLeaderWorkerSet: func(ns *corev1.Namespace) *testutils.LeaderWorkerSetWrapper {
 				return testutils.BuildLeaderWorkerSet(ns.Name)

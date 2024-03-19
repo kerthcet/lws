@@ -72,7 +72,7 @@ func (r *LeaderWorkerSetWebhook) Default(ctx context.Context, obj runtime.Object
 	if lws.Spec.RolloutStrategy.Type == v1.RollingUpdateStrategyType && lws.Spec.RolloutStrategy.RollingUpdateConfiguration == nil {
 		lws.Spec.RolloutStrategy.RollingUpdateConfiguration = &v1.RollingUpdateConfiguration{
 			MaxUnavailable: intstr.FromInt32(1),
-			MaxSurge:       intstr.FromInt32(1),
+			MaxSurge:       intstr.FromInt32(0),
 		}
 	}
 	return nil
@@ -111,10 +111,10 @@ func (r *LeaderWorkerSetWebhook) ValidateUpdate(ctx context.Context, oldObj, new
 		allErrs = append(allErrs, fmt.Errorf("the Replicas %d is invalid", newLws.Spec.Replicas))
 	}
 	newLwsClone := newLws.DeepCopy()
-	// Replicas can be mutated
-	newLwsClone.Spec.Replicas = oldLws.Spec.Replicas
-	if !apiequality.Semantic.DeepEqual(oldLws.Spec, newLwsClone.Spec) {
-		allErrs = append(allErrs, field.Forbidden(field.NewPath("spec"), "updates to leaderworkerset spec for fields other than 'replicas' are forbidden"))
+	// All fields of leaderWorkerTemplate are mutable.
+	newLwsClone.Spec.LeaderWorkerTemplate = oldLws.Spec.LeaderWorkerTemplate
+	if !apiequality.Semantic.DeepEqual(oldLws.Spec.LeaderWorkerTemplate, newLwsClone.Spec.LeaderWorkerTemplate) {
+		allErrs = append(allErrs, field.Forbidden(field.NewPath("spec").Child("leaderWorkerTemplate"), "only leaderTemplate are mutable"))
 	}
 	return nil, errors.Join(allErrs...)
 }

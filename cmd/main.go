@@ -28,6 +28,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -123,16 +124,20 @@ func setupControllers(mgr ctrl.Manager, certsReady chan struct{}) {
 	setupLog.Info("waiting for the cert generation to complete")
 	<-certsReady
 	setupLog.Info("certs ready")
-	if err := (&controllers.LeaderWorkerSetReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-		Record: mgr.GetEventRecorderFor("leaderworkerset"),
-	}).SetupWithManager(mgr); err != nil {
+
+	channel := make(chan event.GenericEvent)
+
+	if err := controllers.NewLeaderWorkerSetReconciler(
+		mgr.GetClient(),
+		mgr.GetScheme(),
+		mgr.GetEventRecorderFor("leaderworkerset"),
+		channel,
+	).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "LeaderWorkerSet")
 		os.Exit(1)
 	}
 	// Set up pod reconciler.
-	podController := controllers.NewPodReconciler(mgr.GetClient(), mgr.GetScheme())
+	podController := controllers.NewPodReconciler(mgr.GetClient(), mgr.GetScheme(), channel)
 	if err := podController.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Pod")
 		os.Exit(1)
